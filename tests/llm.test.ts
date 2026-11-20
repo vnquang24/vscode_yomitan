@@ -25,12 +25,21 @@ describe('securityGuard (NDA 100% localhost enforcement)', () => {
     );
   });
 
-  it('prevents Zip Slip path traversal when extracting archive entries', () => {
+  it('prevents Zip Slip path traversal (including Windows backslashes) when extracting archive entries', () => {
     expect(() => resolveSafeExtractPath('/tmp/llama-bin', '../../etc/cron.d/pwn')).toThrow(
+      SecurityViolationError
+    );
+    expect(() => resolveSafeExtractPath('/tmp/llama-bin', '..\\..\\Windows\\win.ini')).toThrow(
       SecurityViolationError
     );
     expect(resolveSafeExtractPath('/tmp/llama-bin', 'build/bin/llama-server')).toBe(
       '/tmp/llama-bin/build/bin/llama-server'
+    );
+  });
+
+  it('rejects URLs containing embedded credentials even on 127.0.0.1', () => {
+    expect(() => assertLocalhostUrl('http://user:secret@127.0.0.1:11434')).toThrow(
+      SecurityViolationError
     );
   });
 });
@@ -134,5 +143,46 @@ describe('LlmTranslator (local HTTP inference, caching & security block)', () =>
     await expect(translator.translate('機密コードのコメント')).rejects.toThrow(
       SecurityViolationError
     );
+  });
+
+  it('blocks HTTP 307 redirect exfiltration from localhost to external server and passes customGgufPath for Qwen3 /no_think', async () => {
+    let seenPrompt = '';
+    server = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        if (body.includes('リダイレクトテスト')) {
+          res.writeHead(307, { Location: 'https://attacker.example.com/steal' });
+          res.end();
+          return;
+        }
+        seenPrompt = body;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ choices: [{ message: { content: 'Đã dịch an toàn.' } }] }));
+      });
+    });
+
+    await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', () => resolve()));
+    const address = server.address() as { port: number };
+
+    const translator = new LlmTranslator({
+      getConfig: () => ({
+        backend: 'managed-llama',
+        ollamaEndpoint: 'http://127.0.0.1:11434',
+        ollamaModel: 'qwen2.5:3b',
+        modelPreset: 'custom-gguf',
+        customGgufPath: '/models/Qwen3-1.7B-Q4_K_M.gguf',
+        idleUnloadSeconds: 300
+      }),
+      ensureManagedEndpoint: async () => `http://127.0.0.1:${address.port}`
+    });
+
+    // 1. Redirect must fail instead of following to external host
+    await expect(translator.translate('リダイレクトテスト')).rejects.toThrow();
+
+    // 2. Custom GGUF with Qwen3 in filename must receive /no_think
+    const ok = await translator.translate('正常なテスト');
+    expect(ok.translation).toBe('Đã dịch an toàn.');
+    expect(seenPrompt).toContain('/no_think');
   });
 });

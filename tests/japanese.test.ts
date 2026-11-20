@@ -50,6 +50,13 @@ describe('extractContextAtOffset', () => {
     expect(ctx).not.toBeNull();
     expect(ctx!.sentence).toBe('データベース接続に失敗しました');
   });
+
+  it('stops clause extraction at Markdown table pipes | and cleans multi-line comment prefixes', () => {
+    const tableLine = '| 項目 | 認証情報を確認 | 備考 |';
+    const ctx = extractContextAtOffset(tableLine, tableLine.indexOf('認'));
+    expect(ctx).not.toBeNull();
+    expect(ctx!.sentence).toBe('認証情報を確認');
+  });
 });
 
 describe('deinflect (Yomitan-style Japanese verb/adjective deinflection)', () => {
@@ -76,6 +83,13 @@ describe('deinflect (Yomitan-style Japanese verb/adjective deinflection)', () =>
     expect(deinflect('高くない').map((r) => r.term)).toContain('高い');
     expect(deinflect('難しかった').map((r) => r.term)).toContain('難しい');
   });
+
+  it('does not produce 0-length stem false positives (して -x-> す, 買った -x-> い) or strip further after する -> noun', () => {
+    expect(deinflect('して').map((r) => r.term)).not.toContain('す');
+    expect(deinflect('買った').map((r) => r.term)).not.toContain('い');
+    // 愛する -> 愛 (noun), NOT stripping い/etc further
+    expect(deinflect('愛していない').map((r) => r.term)).toContain('愛');
+  });
 });
 
 describe('JapaneseAnalyzer (kuromoji morphological boundary & kana reading)', () => {
@@ -95,5 +109,17 @@ describe('JapaneseAnalyzer (kuromoji morphological boundary & kana reading)', ()
     expect(res).not.toBeNull();
     expect(res!.lookupCandidates[0].startsWith('認証情報')).toBe(true);
     expect(res!.tokenReadingHiragana).toContain('にんしょう');
+  });
+
+  it('joins mixed Kanji+Katakana compounds (単体テスト) and snaps auxiliary hover (られ in 食べさせられた) to verb start', async () => {
+    const itLine = '// 単体テストを実行する';
+    const katakanaHover = await analyzer.analyzeAtOffset(itLine, itLine.indexOf('テ'));
+    expect(katakanaHover).not.toBeNull();
+    expect(katakanaHover!.lookupCandidates[0].startsWith('単体テスト')).toBe(true);
+
+    const verbLine = '// 全部食べさせられた';
+    const auxHover = await analyzer.analyzeAtOffset(verbLine, verbLine.indexOf('ら'));
+    expect(auxHover).not.toBeNull();
+    expect(auxHover!.lookupCandidates[0].startsWith('食べさせられた')).toBe(true);
   });
 });

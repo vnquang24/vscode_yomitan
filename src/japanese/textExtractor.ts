@@ -21,7 +21,9 @@ const QUOTE_OR_BRACKET_BOUNDARIES = new Set([
   '{',
   '}',
   '[',
-  ']'
+  ']',
+  '|',
+  ';'
 ]);
 
 export function extractContextAtOffset(
@@ -34,7 +36,6 @@ export function extractContextAtOffset(
   }
 
   const ch = lineText[columnOffset];
-  // Ignore punctuation/spaces or pure ASCII code characters
   if (!isJapaneseChar(ch) || '、。「」『』（）・　 '.includes(ch)) {
     return null;
   }
@@ -42,17 +43,19 @@ export function extractContextAtOffset(
     return null;
   }
 
-  // 1. Expand left and right within contiguous clause (stop at quotes, code delimiters, or spaces)
+  // 1. Expand left within contiguous clause
   let clauseStart = columnOffset;
   while (clauseStart > 0) {
     const prev = lineText[clauseStart - 1];
     if (QUOTE_OR_BRACKET_BOUNDARIES.has(prev) || prev === '/' || prev === '*') {
       break;
     }
-    if (!isJapaneseChar(prev) && !/[0-9A-Za-z_ 　]/.test(prev)) {
+    if (prev === '#' && (clauseStart === 1 || /\s/.test(lineText[clauseStart - 2]))) {
       break;
     }
-    // Stop expanding left if we hit pure ASCII prefix before Japanese comment
+    if (!isJapaneseChar(prev) && !/[0-9A-Za-z_.\- 　]/.test(prev)) {
+      break;
+    }
     if (/[A-Za-z]/.test(prev) && !containsJapanese(lineText.slice(0, clauseStart))) {
       break;
     }
@@ -62,6 +65,7 @@ export function extractContextAtOffset(
     clauseStart--;
   }
 
+  // 2. Expand right within contiguous clause
   let clauseEnd = columnOffset + 1;
   while (clauseEnd < lineText.length) {
     const next = lineText[clauseEnd];
@@ -71,8 +75,13 @@ export function extractContextAtOffset(
     if (next === '*' && lineText[clauseEnd + 1] === '/') {
       break;
     }
+    if (next === '/' && lineText[clauseEnd + 1] === '/') {
+      break;
+    }
+    if (next === '#' && /\s/.test(lineText[clauseEnd - 1])) {
+      break;
+    }
     if (SENTENCE_STOP_CHARS.has(next)) {
-      // Include trailing Japanese period/exclamation in the sentence
       if ('。！？'.includes(next)) {
         clauseEnd++;
       }
@@ -100,9 +109,16 @@ export function extractContextAtOffset(
 
 export function cleanCodeArtifacts(raw: string): string {
   return raw
-    .replace(/^\s*(?:\/\/+|\/\*+|\*+|#+|--+|<!--)\s*/, '')
-    .replace(/\s*(?:\*+\/|-->)\s*$/, '')
-    .replace(/^[\s"'`,;:]+/, '')
-    .replace(/[\s"'`,;:]+$/, '')
+    .split(/\r?\n/)
+    .map((line) =>
+      line
+        .replace(/^\s*(?:\/\/+|\/\*+|\*+|#+|--+|<!--)\s*/, '')
+        .replace(/\s*(?:\*+\/|-->)\s*$/, '')
+        .replace(/^[\s"'`,;|]+/, '')
+        .replace(/[\s"'`,;|]+$/, '')
+        .trim()
+    )
+    .filter(Boolean)
+    .join('\n')
     .trim();
 }

@@ -80,6 +80,12 @@ export async function resolveLatestLlamaCppAsset(
   for (const rel of releases) {
     const asset = rel.assets.find((a) => matcher(a.name));
     if (asset) {
+      if (
+        !asset.browser_download_url.startsWith('https://github.com/') &&
+        !asset.browser_download_url.startsWith('https://objects.githubusercontent.com/')
+      ) {
+        throw new Error(`URL tải llama-server không thuộc nguồn GitHub tin cậy: ${asset.browser_download_url}`);
+      }
       return {
         tagName: rel.tag_name,
         assetName: asset.name,
@@ -130,9 +136,16 @@ export async function downloadFileWithProgress(
     });
     fs.renameSync(partPath, destPath);
   } catch (err) {
-    fileStream.destroy();
-    if (fs.existsSync(partPath)) {
-      fs.unlinkSync(partPath);
+    await new Promise<void>((resolve) => {
+      fileStream.close(() => resolve());
+      fileStream.destroy();
+    });
+    try {
+      if (fs.existsSync(partPath)) {
+        fs.unlinkSync(partPath);
+      }
+    } catch {
+      // ignore EBUSY cleanup error on Windows
     }
     throw err;
   }

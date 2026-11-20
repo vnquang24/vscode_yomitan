@@ -219,4 +219,29 @@ describe('parseYomitanZip & DictionaryStore', () => {
     expect(joined).not.toContain('JMdict');
     expect(joined).not.toContain('See also 停電');
   });
+
+  it('prevents reading-only false Kanji collisions on deinflection (傘 かさ -x-> 会 かい)', () => {
+    const store = new DictionaryStore();
+    store.addTerm({
+      expression: '会',
+      reading: 'かい',
+      posTags: 'n',
+      rules: '',
+      score: 80,
+      glosses: ['hội họp'],
+      dictionary: 'Test'
+    });
+    store.addTerm({
+      expression: '傘',
+      reading: 'かさ',
+      posTags: 'n',
+      rules: '',
+      score: 80,
+      glosses: ['cái ô / dù'],
+      dictionary: 'Test'
+    });
+
+    const matches = store.lookupTerms(['傘']);
+    expect(matches.map((m) => m.expression)).toEqual(['傘']);
+  });
 });

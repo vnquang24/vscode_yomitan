@@ -16,8 +16,8 @@ function encodeCommandUri(commandId: string, args: unknown[]): string {
   return `command:${commandId}?${encodeURIComponent(JSON.stringify(args))}`;
 }
 
-function escapeMarkdownInline(text: string): string {
-  return text.replace(/([\\`|*_{}[\]()])/g, '\\$1');
+export function escapeMarkdownInline(text: string): string {
+  return text.replace(/([\\`|*_{}[\]<>!])/g, '\\$1');
 }
 
 export function formatYomitanHoverMarkdown(input: HoverRenderInput): string {
@@ -27,23 +27,31 @@ export function formatYomitanHoverMarkdown(input: HoverRenderInput): string {
   if (input.matches.length > 0) {
     const termBlocks: string[] = [];
     for (const m of input.matches) {
+      const safeExpr = escapeMarkdownInline(m.expression);
       const readingBadge =
-        m.reading && m.reading !== m.expression ? ` 【${m.reading}】` : '';
-      const hvBadge = m.hanViet ? ` · \`[${m.hanViet}]\`` : '';
-      const dictBadge = m.dictionary ? ` *(${escapeMarkdownInline(m.dictionary)})*` : '';
-      let header = `### **${m.expression}**${readingBadge}${hvBadge}${dictBadge}`;
+        m.reading && m.reading !== m.expression
+          ? ` 【${escapeMarkdownInline(m.reading)}】`
+          : '';
+      const hvBadge = m.hanViet ? ` · \`[${m.hanViet.replace(/`/g, '')}]\`` : '';
+      const dictBadge = m.dictionary
+        ? ` *(${escapeMarkdownInline(m.dictionary)})*`
+        : '';
+      let header = `### **${safeExpr}**${readingBadge}${hvBadge}${dictBadge}`;
 
       if (m.deinflectReasons.length > 0 || m.matchedSurface !== m.expression) {
         const reasonStr =
           m.deinflectReasons.length > 0
-            ? ` — ${m.deinflectReasons.join(' · ')}`
+            ? ` — ${escapeMarkdownInline(m.deinflectReasons.join(' · '))}`
             : '';
-        header += `\n*(từ: \`${m.matchedSurface}\`${reasonStr})*`;
+        header += `\n*(từ: \`${m.matchedSurface.replace(/`/g, '')}\`${reasonStr})*`;
       }
 
       const glossLines = m.glosses
         .slice(0, 4)
-        .map((g, idx) => `${idx + 1}. ${g.replace(/\n+/g, ' — ')}`)
+        .map(
+          (g, idx) =>
+            `${idx + 1}. ${escapeMarkdownInline(g.replace(/\n+/g, ' — '))}`
+        )
         .join('\n');
 
       termBlocks.push(`${header}\n${glossLines}`);
@@ -52,10 +60,10 @@ export function formatYomitanHoverMarkdown(input: HoverRenderInput): string {
   } else {
     const readingPart =
       input.fallbackReading && input.fallbackReading !== input.fallbackSurface
-        ? ` 【${input.fallbackReading}】`
+        ? ` 【${escapeMarkdownInline(input.fallbackReading)}】`
         : '';
     const hvPart = input.fallbackHanViet
-      ? ` · \`[${input.fallbackHanViet}]\``
+      ? ` · \`[${input.fallbackHanViet.replace(/`/g, '')}]\``
       : '';
     sections.push(
       `### **${escapeMarkdownInline(input.fallbackSurface)}**${readingPart}${hvPart}\n*(Chưa có mục từ ghép trong từ điển — đã tách Kana & Hán-Việt tự động)*`
@@ -65,10 +73,12 @@ export function formatYomitanHoverMarkdown(input: HoverRenderInput): string {
   // 2. Kanji Breakdown (Hán tự & Âm Hán-Việt)
   if (input.kanjiList.length > 0) {
     const kanjiLines = input.kanjiList.slice(0, 6).map((k) => {
-      const hv = k.hanViet ? ` \`[${k.hanViet}]\`` : '';
+      const hv = k.hanViet ? ` \`[${k.hanViet.replace(/`/g, '')}]\`` : '';
       const shortMeaning = k.meanings.slice(0, 2).join('; ');
-      const meaningPart = shortMeaning ? ` — ${shortMeaning}` : '';
-      return `- **${k.character}**${hv}${meaningPart}`;
+      const meaningPart = shortMeaning
+        ? ` — ${escapeMarkdownInline(shortMeaning)}`
+        : '';
+      return `- **${escapeMarkdownInline(k.character)}**${hv}${meaningPart}`;
     });
     sections.push(`**Hán tự:**\n${kanjiLines.join('\n')}`);
   }
@@ -76,14 +86,18 @@ export function formatYomitanHoverMarkdown(input: HoverRenderInput): string {
   // 3. Sentence Reading (Kana) + Offline Local LLM Translation
   if (input.sentence) {
     const sentenceParts: string[] = [
-      `**Câu:** ${escapeMarkdownInline(input.sentence)}`
+      `**Câu:** ${escapeMarkdownInline(input.sentence.replace(/\n+/g, ' '))}`
     ];
     if (input.sentenceReading && input.sentenceReading !== input.sentence) {
-      sentenceParts.push(`**Kana:** ${escapeMarkdownInline(input.sentenceReading)}`);
+      sentenceParts.push(
+        `**Kana:** ${escapeMarkdownInline(input.sentenceReading.replace(/\n+/g, ' '))}`
+      );
     }
 
     if (input.cachedTranslation) {
-      sentenceParts.push(`🤖 **Dịch (Local AI):** ${escapeMarkdownInline(input.cachedTranslation)}`);
+      sentenceParts.push(
+        `🤖 **Dịch (Local AI):** ${escapeMarkdownInline(input.cachedTranslation.replace(/\n+/g, ' '))}`
+      );
     }
 
     const translateUri = encodeCommandUri('yomiJavi.translateText', [

@@ -10,6 +10,7 @@ const VS = 1 << 2; // Suru verb (する, 実装する)
 const VK = 1 << 3; // Kuru verb (来る, くる)
 const ADJ_I = 1 << 4; // i-adjective (高い, 難しい, ない, たい)
 const MASU_STEM = 1 << 5; // Intermediate polite stem
+const NOUN = 1 << 6; // Terminal noun stem after stripping する
 const V_ANY = V1 | V5 | VS | VK;
 
 interface DeinflectRule {
@@ -168,9 +169,11 @@ const RULES: DeinflectRule[] = [
   { inflected: 'よう', deinflected: 'る', reason: 'ý chí (-よう)', conditionsIn: 0, conditionsOut: V1 },
   { inflected: 'しよう', deinflected: 'する', reason: 'ý chí (-しよう)', conditionsIn: 0, conditionsOut: VS },
 
-  // Suru-verb stem extraction (実装する -> 実装 so noun dictionaries match!)
-  { inflected: 'する', deinflected: '', reason: 'động từ hóa (-する)', conditionsIn: 0 | VS, conditionsOut: V_ANY }
+  // Suru-verb stem extraction (実装する -> 実装 so noun dictionaries match! Terminal NOUN condition stops further verb stripping)
+  { inflected: 'する', deinflected: '', reason: 'động từ hóa (-する)', conditionsIn: 0 | VS, conditionsOut: NOUN }
 ];
+
+const WHOLE_WORD_IRREGULARS = new Set(['行く', 'くる', '来る', 'する']);
 
 interface QueueNode {
   term: string;
@@ -215,6 +218,9 @@ export function deinflect(source: string, maxDepth = 6): DeinflectCandidate[] {
       }
 
       const stemLen = current.term.length - rule.inflected.length;
+      if (stemLen < 1 && !WHOLE_WORD_IRREGULARS.has(rule.deinflected)) {
+        continue;
+      }
       const nextTerm = current.term.slice(0, stemLen) + rule.deinflected;
       if (nextTerm.length === 0) {
         continue;

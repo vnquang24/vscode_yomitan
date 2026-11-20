@@ -38,33 +38,37 @@ export function activate(context: vscode.ExtensionContext): void {
     if (dictLoadingPromise) return dictLoadingPromise;
 
     dictLoadingPromise = (async () => {
-      const store = new DictionaryStore();
-      const kanjiZip = path.join(context.extensionPath, 'data', 'KANJIDIC_vietnamese.zip');
-      const javiGz = path.join(context.extensionPath, 'data', 'javi-dict.json.gz');
+      try {
+        const store = new DictionaryStore();
+        const kanjiZip = path.join(context.extensionPath, 'data', 'KANJIDIC_vietnamese.zip');
+        const javiGz = path.join(context.extensionPath, 'data', 'javi-dict.json.gz');
 
-      if (fs.existsSync(kanjiZip)) {
-        await store.importYomitanZip(kanjiZip);
-      }
-      if (fs.existsSync(javiGz)) {
-        await store.loadCompactBundleGz(javiGz);
-      }
+        if (fs.existsSync(kanjiZip)) {
+          await store.importYomitanZip(kanjiZip);
+        }
+        if (fs.existsSync(javiGz)) {
+          await store.loadCompactBundleGz(javiGz);
+        }
 
-      // Also load any user-imported Yomitan .zip dictionaries saved in globalStorage
-      const userDictDir = path.join(storagePath, 'dictionaries');
-      if (fs.existsSync(userDictDir)) {
-        for (const file of fs.readdirSync(userDictDir)) {
-          if (file.endsWith('.zip')) {
-            try {
-              await store.importYomitanZip(path.join(userDictDir, file));
-            } catch (err) {
-              console.warn(`Không đọc được từ điển ${file}:`, err);
+        const userDictDir = path.join(storagePath, 'dictionaries');
+        if (fs.existsSync(userDictDir)) {
+          for (const file of fs.readdirSync(userDictDir)) {
+            if (file.endsWith('.zip')) {
+              try {
+                await store.importYomitanZip(path.join(userDictDir, file));
+              } catch (err) {
+                console.warn(`Không đọc được từ điển ${file}:`, err);
+              }
             }
           }
         }
-      }
 
-      dictStore = store;
-      return store;
+        dictStore = store;
+        return store;
+      } catch (err) {
+        dictLoadingPromise = null;
+        throw err;
+      }
     })();
 
     return dictLoadingPromise;
@@ -121,6 +125,7 @@ export function activate(context: vscode.ExtensionContext): void {
         ollamaEndpoint: cfg.get<string>('llm.ollamaEndpoint', 'http://127.0.0.1:11434'),
         ollamaModel: cfg.get<string>('llm.ollamaModel', 'qwen2.5:3b'),
         modelPreset: cfg.get<string>('llm.modelPreset', 'qwen2.5-3b'),
+        customGgufPath: cfg.get<string>('llm.customGgufPath', ''),
         idleUnloadSeconds: cfg.get<number>('llm.idleUnloadSeconds', 300)
       };
     },
@@ -137,10 +142,16 @@ export function activate(context: vscode.ExtensionContext): void {
         }
       });
     },
-    onActivity: () => {
+    onRequestStart: () => {
       const cfg = vscode.workspace.getConfiguration('yomiJavi');
       if (cfg.get<string>('llm.backend', 'managed-llama') === 'managed-llama') {
-        llamaManager.resetIdleTimer(
+        llamaManager.beginRequest();
+      }
+    },
+    onRequestEnd: () => {
+      const cfg = vscode.workspace.getConfiguration('yomiJavi');
+      if (cfg.get<string>('llm.backend', 'managed-llama') === 'managed-llama') {
+        llamaManager.endRequest(
           cfg.get<number>('llm.idleUnloadSeconds', 300),
           (_state, detail) => {
             updateStatusBar(detail);
@@ -240,13 +251,14 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!uris || uris.length === 0) return;
 
       const srcPath = uris[0].fsPath;
+      const store = await ensureDictionariesLoaded();
+      const title = await store.importYomitanZip(srcPath);
+
       const destDir = path.join(storagePath, 'dictionaries');
       await fsp.mkdir(destDir, { recursive: true });
       const destPath = path.join(destDir, path.basename(srcPath));
       await fsp.copyFile(srcPath, destPath);
 
-      const store = await ensureDictionariesLoaded();
-      const title = await store.importYomitanZip(destPath);
       void vscode.window.showInformationMessage(
         `Đã nạp thành công từ điển Yomitan: "${title}"!`
       );
@@ -278,50 +290,58 @@ export function activate(context: vscode.ExtensionContext): void {
       const presetInfo = MODEL_PRESETS[pick.presetId];
       const modelDest = path.join(storagePath, 'models', presetInfo.fileName);
 
-      await vscode.window.withProgress(
-        {
-          location: vscode.ProgressLocation.Notification,
-          title: `Yomi Ja-Vi: Cài đặt ${presetInfo.id}`,
-          cancellable: true
-        },
-        async (progress, cancelToken) => {
-          const abortController = new AbortController();
-          cancelToken.onCancellationRequested(() => abortController.abort());
+      try {
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `Yomi Ja-Vi: Cài đặt ${presetInfo.id}`,
+            cancellable: true
+          },
+          async (progress, cancelToken) => {
+            const abortController = new AbortController();
+            cancelToken.onCancellationRequested(() => abortController.abort());
 
-          await llamaManager.ensureBinaryInstalled((msg) => {
-            progress.report({ message: msg });
-          }, abortController.signal);
+            await llamaManager.ensureBinaryInstalled((msg) => {
+              progress.report({ message: msg });
+            }, abortController.signal);
 
-          if (!fs.existsSync(modelDest)) {
-            let lastPct = 0;
-            await downloadFileWithProgress(
-              presetInfo.downloadUrl,
-              modelDest,
-              (loaded, total) => {
-                const pct = total > 0 ? Math.floor((loaded / total) * 100) : 0;
-                const inc = Math.max(0, pct - lastPct);
-                lastPct = pct;
-                progress.report({
-                  increment: inc,
-                  message: `Đang tải model ${(loaded / 1048576).toFixed(0)} / ${(total / 1048576).toFixed(0)} MB (${pct}%)`
-                });
-              },
-              abortController.signal
-            );
+            if (!fs.existsSync(modelDest)) {
+              let lastPct = 0;
+              await downloadFileWithProgress(
+                presetInfo.downloadUrl,
+                modelDest,
+                (loaded, total) => {
+                  const pct = total > 0 ? Math.floor((loaded / total) * 100) : 0;
+                  const inc = Math.max(0, pct - lastPct);
+                  lastPct = pct;
+                  progress.report({
+                    increment: inc,
+                    message: `Đang tải model ${(loaded / 1048576).toFixed(0)} / ${(total / 1048576).toFixed(0)} MB (${pct}%)`
+                  });
+                },
+                abortController.signal
+              );
+            }
+
+            await vscode.workspace
+              .getConfiguration('yomiJavi')
+              .update('llm.backend', 'managed-llama', vscode.ConfigurationTarget.Global);
+            await vscode.workspace
+              .getConfiguration('yomiJavi')
+              .update('llm.modelPreset', pick.presetId, vscode.ConfigurationTarget.Global);
           }
+        );
 
-          await vscode.workspace
-            .getConfiguration('yomiJavi')
-            .update('llm.backend', 'managed-llama', vscode.ConfigurationTarget.Global);
-          await vscode.workspace
-            .getConfiguration('yomiJavi')
-            .update('llm.modelPreset', pick.presetId, vscode.ConfigurationTarget.Global);
+        void vscode.window.showInformationMessage(
+          `Đã sẵn sàng! Model ${presetInfo.id} đã lưu offline tại máy. Bấm "Dịch câu này" trong Hover hoặc Ctrl+Shift+Y để dịch.`
+        );
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          void vscode.window.showInformationMessage('Đã hủy tải model LLM.');
+          return;
         }
-      );
-
-      void vscode.window.showInformationMessage(
-        `Đã sẵn sàng! Model ${presetInfo.id} đã lưu offline tại máy. Bấm "Dịch câu này" trong Hover hoặc Ctrl+Shift+Y để dịch.`
-      );
+        throw err;
+      }
     }),
 
     vscode.commands.registerCommand('yomiJavi.selectLocalGguf', async () => {

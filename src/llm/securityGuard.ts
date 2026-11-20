@@ -9,7 +9,7 @@ const ALLOWED_LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1'
 
 /**
  * Enforces 100% local loopback communication for NDA/confidential code protection.
- * Rejects any external domain, LAN IP, or non-HTTP(S) protocol.
+ * Rejects any external domain, LAN IP, embedded credentials, or non-HTTP(S) protocol.
  */
 export function assertLocalhostUrl(rawUrl: string): URL {
   let parsed: URL;
@@ -22,6 +22,12 @@ export function assertLocalhostUrl(rawUrl: string): URL {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new SecurityViolationError(
       `Giao thức không được phép ("${parsed.protocol}"). Chỉ chấp nhận http/https nội bộ.`
+    );
+  }
+
+  if (parsed.username || parsed.password) {
+    throw new SecurityViolationError(
+      'Chặn bảo mật: Không cho phép thông tin xác thực nhúng trong URL LLM nội bộ.'
     );
   }
 

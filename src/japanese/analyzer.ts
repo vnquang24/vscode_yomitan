@@ -1,5 +1,5 @@
 import kuromoji, { type IpadicFeatures, type Tokenizer } from 'kuromoji';
-import { isKanji, katakanaToHiragana } from './kana.js';
+import { katakanaToHiragana } from './kana.js';
 import { extractContextAtOffset, type ExtractedJapaneseContext } from './textExtractor.js';
 
 export interface AnalyzedPosition {
@@ -14,6 +14,12 @@ export interface AnalyzedPosition {
   tokenReadingHiragana: string;
   /** Hiragana reading of the entire sentence */
   sentenceReadingHiragana: string;
+}
+
+function isCompoundableNoun(token: IpadicFeatures): boolean {
+  if (token.pos !== '名詞') return false;
+  if (['非自立', '代名詞', '数'].includes(token.pos_detail_1)) return false;
+  return true;
 }
 
 export class JapaneseAnalyzer {
@@ -67,7 +73,6 @@ export class JapaneseAnalyzer {
     await this.init();
     const tokens = this.tokenize(context.clause);
 
-    // Map each token's start & end offset within context.clause
     let cursorTokenIndex = -1;
     const spans: Array<{ start: number; end: number; token: IpadicFeatures }> = [];
     let runningOffset = 0;
@@ -103,37 +108,61 @@ export class JapaneseAnalyzer {
           ? target.token.basic_form
           : tokenSurface;
 
-      // Join adjacent Kanji noun compounds (e.g. 認証 + 情報 -> 認証情報) around cursor
+      // 1. If hovering an auxiliary / verb suffix (e.g. られ in 食べさせられた), walk back to governing verb/adjective!
+      if (
+        target.token.pos === '助動詞' ||
+        (target.token.pos === '動詞' && target.token.pos_detail_1 === '接尾') ||
+        (target.token.pos === '助詞' && target.token.pos_detail_1 === '接続助詞')
+      ) {
+        let headIdx = cursorTokenIndex;
+        while (
+          headIdx > 0 &&
+          ['動詞', '形容詞', '助動詞', '助詞'].includes(spans[headIdx - 1].token.pos)
+        ) {
+          headIdx--;
+          if (
+            (spans[headIdx].token.pos === '動詞' || spans[headIdx].token.pos === '形容詞') &&
+            spans[headIdx].token.pos_detail_1 === '自立'
+          ) {
+            // Include preceding noun ONLY when verb is する (e.g. 実装 + さ + れ -> 実装され...)
+            if (
+              spans[headIdx].token.basic_form === 'する' &&
+              headIdx > 0 &&
+              isCompoundableNoun(spans[headIdx - 1].token)
+            ) {
+              headIdx--;
+            }
+            break;
+          }
+        }
+        if (headIdx < cursorTokenIndex) {
+          addCandidate(context.clause.slice(spans[headIdx].start, spans[headIdx].start + 28));
+        }
+      }
+
+      // 2. Join adjacent content nouns (Kanji + Kanji or Kanji + Katakana like 単体テスト / データベース接続)
       let compoundStartIdx = cursorTokenIndex;
-      while (
-        compoundStartIdx > 0 &&
-        spans[compoundStartIdx].token.pos === '名詞' &&
-        spans[compoundStartIdx - 1].token.pos === '名詞' &&
-        isKanji(spans[compoundStartIdx].token.surface_form[0]) &&
-        isKanji(spans[compoundStartIdx - 1].token.surface_form.slice(-1))
-      ) {
-        compoundStartIdx--;
-      }
-
       let compoundEndIdx = cursorTokenIndex;
-      while (
-        compoundEndIdx + 1 < spans.length &&
-        spans[compoundEndIdx].token.pos === '名詞' &&
-        spans[compoundEndIdx + 1].token.pos === '名詞' &&
-        isKanji(spans[compoundEndIdx + 1].token.surface_form[0])
-      ) {
-        compoundEndIdx++;
+      if (isCompoundableNoun(target.token)) {
+        while (compoundStartIdx > 0 && isCompoundableNoun(spans[compoundStartIdx - 1].token)) {
+          compoundStartIdx--;
+        }
+        while (
+          compoundEndIdx + 1 < spans.length &&
+          isCompoundableNoun(spans[compoundEndIdx + 1].token)
+        ) {
+          compoundEndIdx++;
+        }
       }
 
-      // 1. Candidate starting from token containing cursor (handles hovering 証 inside 認証情報 -> 認証情報...)
-      addCandidate(context.clause.slice(target.start, target.start + 28));
-
-      // 2. If cursor was on second half of a Kanji noun compound (e.g. 報 inside 認証情報), also offer full compound!
+      // Offer full noun compound FIRST so hovering 報 in 認証情報 or テ in 単体テスト ranks full compound #1!
       if (compoundStartIdx < cursorTokenIndex) {
         addCandidate(context.clause.slice(spans[compoundStartIdx].start, spans[compoundStartIdx].start + 28));
       }
 
-      // Compute combined Hiragana reading for the compound / token
+      // Candidate starting at hovered token
+      addCandidate(context.clause.slice(target.start, target.start + 28));
+
       const readingParts: string[] = [];
       const surfaceParts: string[] = [];
       for (let i = compoundStartIdx; i <= compoundEndIdx; i++) {
@@ -148,13 +177,11 @@ export class JapaneseAnalyzer {
       }
       tokenReadingHiragana = readingParts.join('');
 
-      // 3. Also add basic_form from kuromoji if different
       if (tokenBaseForm !== target.token.surface_form) {
         addCandidate(tokenBaseForm);
       }
     }
 
-    // 4. Raw slice starting directly at cursor
     addCandidate(context.scanFromCursor);
 
     const sentenceReadingHiragana = this.toHiraganaReading(context.sentence);

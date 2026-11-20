@@ -11,6 +11,13 @@ export interface SidebarCallbacks {
   getLlmStatusText: () => string;
 }
 
+const ALLOWED_WEBVIEW_COMMANDS = new Set([
+  'yomiJavi.downloadModel',
+  'yomiJavi.selectLocalGguf',
+  'yomiJavi.stopLlmServer',
+  'yomiJavi.importYomitanZip'
+]);
+
 export class YomiJaviSidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'yomiJavi.lookupView';
   private view?: vscode.WebviewView;
@@ -50,7 +57,9 @@ export class YomiJaviSidebarProvider implements vscode.WebviewViewProvider {
       }
 
       if (msg.type === 'command' && typeof msg.text === 'string') {
-        await vscode.commands.executeCommand(msg.text);
+        if (ALLOWED_WEBVIEW_COMMANDS.has(msg.text)) {
+          await vscode.commands.executeCommand(msg.text);
+        }
       }
     });
   }
@@ -345,6 +354,10 @@ export class YomiJaviSidebarProvider implements vscode.WebviewViewProvider {
           transCard.style.display = 'block';
           transBody.textContent = msg.translation;
           transMeta.textContent = 'LRU Cache (0ms)';
+        } else {
+          transCard.style.display = 'none';
+          transBody.textContent = '';
+          transMeta.textContent = '';
         }
 
         if (msg.vocabItems && msg.vocabItems.length > 0) {

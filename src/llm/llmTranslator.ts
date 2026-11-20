@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import { buildTranslationMessages, cleanModelOutput } from './promptBuilder.js';
 import { assertLocalhostUrl } from './securityGuard.js';
 import { TranslationCache } from './translationCache.js';
@@ -7,12 +8,15 @@ export interface TranslatorRuntimeConfig {
   ollamaEndpoint: string;
   ollamaModel: string;
   modelPreset: string;
+  customGgufPath?: string;
   idleUnloadSeconds: number;
 }
 
 export interface LlmTranslatorDeps {
   getConfig: () => TranslatorRuntimeConfig;
   ensureManagedEndpoint: () => Promise<string>;
+  onRequestStart?: () => void;
+  onRequestEnd?: () => void;
   onActivity?: () => void;
 }
 
@@ -65,86 +69,102 @@ export class LlmTranslator {
 
     const startTime = Date.now();
     const cfg = this.deps.getConfig();
+    this.deps.onRequestStart?.();
 
-    let rawContent = '';
-    let modelLabel = '';
+    try {
+      let rawContent = '';
+      let modelLabel = '';
 
-    if (cfg.backend === 'ollama') {
-      const baseUrl = assertLocalhostUrl(cfg.ollamaEndpoint);
-      const chatUrl = new URL('/api/chat', baseUrl);
-      assertLocalhostUrl(chatUrl.toString());
+      if (cfg.backend === 'ollama') {
+        const baseUrl = assertLocalhostUrl(cfg.ollamaEndpoint);
+        const chatUrl = new URL('/api/chat', baseUrl);
+        assertLocalhostUrl(chatUrl.toString());
 
-      modelLabel = `Ollama (${cfg.ollamaModel})`;
-      const messages = buildTranslationMessages(trimmed, cfg.ollamaModel);
+        modelLabel = `Ollama (${cfg.ollamaModel})`;
+        const messages = buildTranslationMessages(trimmed, cfg.ollamaModel);
 
-      const res = await fetch(chatUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: abortSignal,
-        body: JSON.stringify({
-          model: cfg.ollamaModel,
-          messages,
-          stream: false,
-          keep_alive: `${Math.max(1, Math.round(cfg.idleUnloadSeconds / 60))}m`,
-          options: {
+        const res = await fetch(chatUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          redirect: 'error',
+          signal: abortSignal,
+          body: JSON.stringify({
+            model: cfg.ollamaModel,
+            messages,
+            stream: false,
+            keep_alive: `${Math.max(1, Math.round(cfg.idleUnloadSeconds / 60))}m`,
+            options: {
+              temperature: 0.1,
+              num_predict: 1024
+            }
+          })
+        });
+
+        if (!res.ok) {
+          const body = await res.text().catch(() => '');
+          throw new Error(`Lỗi gọi Ollama nội bộ (HTTP ${res.status}): ${body}`);
+        }
+
+        const json = (await res.json()) as { message?: { content?: string } };
+        rawContent = json.message?.content ?? '';
+      } else {
+        const managedBase = await this.deps.ensureManagedEndpoint();
+        const baseUrl = assertLocalhostUrl(managedBase);
+        const completionsUrl = new URL('/v1/chat/completions', baseUrl);
+        assertLocalhostUrl(completionsUrl.toString());
+
+        const customName = cfg.customGgufPath ? path.basename(cfg.customGgufPath) : '';
+        const modelIdentifier = `${cfg.modelPreset} ${customName}`.trim();
+        modelLabel =
+          cfg.modelPreset === 'custom-gguf' && customName
+            ? `Local GGUF (${customName})`
+            : `Local GGUF (${cfg.modelPreset})`;
+
+        const messages = buildTranslationMessages(trimmed, modelIdentifier);
+
+        const res = await fetch(completionsUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          redirect: 'error',
+          signal: abortSignal,
+          body: JSON.stringify({
+            messages,
             temperature: 0.1,
-            num_predict: 512
-          }
-        })
-      });
+            max_tokens: 1024,
+            stream: false
+          })
+        });
 
-      if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        throw new Error(`Lỗi gọi Ollama nội bộ (HTTP ${res.status}): ${body}`);
+        if (!res.ok) {
+          const body = await res.text().catch(() => '');
+          throw new Error(`Lỗi gọi llama-server nội bộ (HTTP ${res.status}): ${body}`);
+        }
+
+        const json = (await res.json()) as {
+          choices?: Array<{ message?: { content?: string } }>;
+        };
+        rawContent = json.choices?.[0]?.message?.content ?? '';
       }
 
-      const json = (await res.json()) as { message?: { content?: string } };
-      rawContent = json.message?.content ?? '';
-    } else {
-      const managedBase = await this.deps.ensureManagedEndpoint();
-      const baseUrl = assertLocalhostUrl(managedBase);
-      const completionsUrl = new URL('/v1/chat/completions', baseUrl);
-      assertLocalhostUrl(completionsUrl.toString());
+      this.deps.onActivity?.();
 
-      modelLabel = `Local GGUF (${cfg.modelPreset})`;
-      const messages = buildTranslationMessages(trimmed, cfg.modelPreset);
-
-      const res = await fetch(completionsUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: abortSignal,
-        body: JSON.stringify({
-          messages,
-          temperature: 0.1,
-          max_tokens: 512,
-          stream: false
-        })
-      });
-
-      if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        throw new Error(`Lỗi gọi llama-server nội bộ (HTTP ${res.status}): ${body}`);
+      const translation = cleanModelOutput(rawContent);
+      if (!translation && rawContent.trim()) {
+        throw new Error('Model chỉ sinh thẻ suy luận rỗng, vui lòng thử lại hoặc rút ngắn câu.');
+      }
+      if (translation) {
+        this.cache.set(trimmed, translation);
       }
 
-      const json = (await res.json()) as {
-        choices?: Array<{ message?: { content?: string } }>;
+      return {
+        source: trimmed,
+        translation,
+        fromCache: false,
+        latencyMs: Date.now() - startTime,
+        modelLabel
       };
-      rawContent = json.choices?.[0]?.message?.content ?? '';
+    } finally {
+      this.deps.onRequestEnd?.();
     }
-
-    this.deps.onActivity?.();
-
-    const translation = cleanModelOutput(rawContent);
-    if (translation) {
-      this.cache.set(trimmed, translation);
-    }
-
-    return {
-      source: trimmed,
-      translation,
-      fromCache: false,
-      latencyMs: Date.now() - startTime,
-      modelLabel
-    };
   }
 }

@@ -73,4 +73,32 @@ describe('formatYomitanHoverMarkdown', () => {
     expect(md).toContain('VỊ ĐĂNG LỤC NGỮ');
     expect(md).toContain('Đã tìm thấy từ chưa đăng ký.');
   });
+
+  it('escapes Markdown image/link/HTML payloads inside 3rd-party dictionary glosses to prevent outbound tracking pings', () => {
+    const md = formatYomitanHoverMarkdown({
+      matches: [
+        {
+          expression: 'テスト',
+          reading: 'てすと',
+          hanViet: '',
+          glosses: ['kiểm thử ![](https://evil.example.com/track.png) <img src="https://evil.example.com/x">'],
+          posTags: 'n',
+          dictionary: 'UntrustedDict',
+          matchedSurface: 'テスト',
+          deinflectReasons: [],
+          score: 100
+        }
+      ],
+      kanjiList: [],
+      fallbackSurface: 'テスト',
+      fallbackReading: 'てすと',
+      fallbackHanViet: '',
+      sentence: 'テストを実行する',
+      sentenceReading: 'てすとをじっこうする'
+    });
+
+    // Must escape ![ and <img so VS Code Markdown renderer never fires outbound HTTP requests
+    expect(md).toContain('\\!\\[\\]');
+    expect(md).toContain('\\<img');
+  });
 });

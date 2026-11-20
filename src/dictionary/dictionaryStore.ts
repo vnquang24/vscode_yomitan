@@ -177,13 +177,23 @@ export class DictionaryStore {
           if (!entries) continue;
 
           for (const entry of entries) {
-            // Avoid spurious reading-only collision when surface is pure hiragana of length 1
+            // Avoid spurious reading-only collisions:
+            // 1. Single-kana surface shouldn't pull unrelated Kanji via reading
             if (
               surface.length === 1 &&
               entry.expression !== df.term &&
               entry.reading === df.term
             ) {
               continue;
+            }
+            // 2. If deinflected (df.reasons.length > 0) and matched ONLY by reading (entry.expression !== df.term),
+            // require that either surface itself was pure kana or entry.expression shares the okurigana ending!
+            if (df.reasons.length > 0 && entry.expression !== df.term) {
+              const lastKana = df.term.slice(-1);
+              const isNounSuruStrip = df.reasons.some((r) => r.includes('-する'));
+              if (!isNounSuruStrip && !entry.expression.endsWith(lastKana)) {
+                continue;
+              }
             }
 
             const dedupId = `${entry.expression}|${entry.reading}|${entry.dictionary}`;
