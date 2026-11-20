@@ -2,8 +2,8 @@ import * as dns from 'node:dns';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as zlib from 'node:zlib';
+import JSZip from 'jszip';
 
-// Force IPv4 first to avoid WSL2 IPv6 timeout delays
 dns.setDefaultResultOrder('ipv4first');
 
 const DATA_DIR = path.resolve('data');
@@ -13,184 +13,194 @@ fs.mkdirSync(TMP_DIR, { recursive: true });
 
 const KANJIDIC_VN_URL =
   'https://github.com/trungnt2910/KanjiDictVN/releases/download/trungnt2910.hannom.20251225-154650.kanjidic2.2025-345/KANJIDIC_vietnamese.zip';
-const STARDICT_IDX_URL =
-  'https://raw.githubusercontent.com/dynamotn/stardict-vi/master/ja-vi/star_nhatviet.idx';
-const STARDICT_DICT_URL =
-  'https://raw.githubusercontent.com/dynamotn/stardict-vi/master/ja-vi/star_nhatviet.dict';
 
-// Curated high-frequency IT / Software Engineering Japanese-Vietnamese entries (high score = 200)
+// Curated high-frequency IT / Software Engineering Japanese-Vietnamese entries (highest priority = 220)
 const CURATED_IT_TERMS = [
-  ['仕様', 'しよう', ['đặc tả kỹ thuật (specification); quy cách'], 200, 'SĨ DẠNG'],
-  ['仕様書', 'しようしょ', ['tài liệu đặc tả (specification document)'], 200, 'SĨ DẠNG THƯ'],
-  ['要件定義', 'ようけんていぎ', ['định nghĩa yêu cầu (requirement definition)'], 200, 'YẾU KIỆN ĐỊNH NGHĨA'],
-  ['基本設計', 'きほんせっけい', ['thiết kế cơ bản (basic design)'], 200, 'CƠ BẢN THIẾT KẾ'],
-  ['詳細設計', 'しょうさいせっけい', ['thiết kế chi tiết (detailed design)'], 200, 'TƯỜNG TẾ THIẾT KẾ'],
-  ['実装', 'じっそう', ['triển khai code; cài đặt (implementation)'], 200, 'THỰC TRANG'],
-  ['単体テスト', 'たんたいてすと', ['kiểm thử đơn vị (unit test)'], 200, 'ĐƠN THỂ'],
-  ['結合テスト', 'けつごうてすと', ['kiểm thử tích hợp (integration test)'], 200, 'KẾT HỢP'],
-  ['不具合', 'ふぐあい', ['lỗi phần mềm; trục trặc (bug / defect)'], 200, 'BẤT CỤ HỢP'],
-  ['改修', 'かいしゅう', ['chỉnh sửa, nâng cấp phần mềm (modification / fix)'], 200, 'CẢI TU'],
-  ['修正', 'しゅうせい', ['sửa lỗi, hiệu chỉnh (fix / correction)'], 200, 'TU CHÍNH'],
-  ['認証', 'にんしょう', ['xác thực danh tính (authentication)'], 200, 'NHẬN CHỨNG'],
-  ['認証情報', 'にんしょうじょうほう', ['thông tin xác thực (credentials)'], 210, 'NHẬN CHỨNG TÌNH BÁO'],
-  ['認可', 'にんか', ['phân quyền truy cập (authorization)'], 200, 'NHẬN KHẢ'],
-  ['権限', 'けんげん', ['quyền hạn (permission / privilege)'], 200, 'QUYỀN HẠN'],
-  ['環境変数', 'かんきょうへんすう', ['biến môi trường (environment variable)'], 200, 'HOÀN CẢNH BIẾN SỐ'],
-  ['本番環境', 'ほんばんかんきょう', ['môi trường thật (production environment)'], 200, 'BẢN PHIÊN HOÀN CẢNH'],
-  ['検証環境', 'けんしょうかんきょう', ['môi trường kiểm thử (staging / verification env)'], 200, 'KIỂM CHỨNG HOÀN CẢNH'],
-  ['開発環境', 'かいはつかんきょう', ['môi trường phát triển (development environment)'], 200, 'KHAI PHÁT HOÀN CẢNH'],
-  ['引数', 'ひきすう', ['tham số truyền vào hàm (argument / parameter)'], 200, 'DẪN SỐ'],
-  ['戻り値', 'もどりち', ['giá trị trả về của hàm (return value)'], 200, 'LỆ TRỊ'],
-  ['返り値', 'かえりち', ['giá trị trả về (return value)'], 200, 'PHẢN TRỊ'],
-  ['例外', 'れいがい', ['ngoại lệ (exception)'], 200, 'LỆ NGOẠI'],
-  ['初期化', 'しょきか', ['khởi tạo (initialization)'], 200, 'SƠ KỲ HÓA'],
-  ['非同期', 'ひどうき', ['bất đồng bộ (asynchronous)'], 200, 'PHI ĐỒNG KỲ'],
-  ['同期処理', 'どうきしょり', ['xử lý đồng bộ (synchronous processing)'], 200, 'ĐỒNG KỲ XỬ LÝ'],
-  ['排他制御', 'はいたせいぎょ', ['kiểm soát loại trừ tương hỗ / khóa đồng thời (mutex / concurrency lock)'], 200, 'BÀI THA CHẾ NGỰ'],
-  ['冪等性', 'べきとうせい', ['tính lũy đẳng (idempotency)'], 200, 'MỊCH ĐẲNG TÍNH'],
-  ['閾値', 'しきいち', ['ngưỡng giới hạn (threshold)'], 200, 'NGƯỠNG TRỊ'],
-  ['再現手順', 'さいげんてじゅん', ['các bước tái hiện lỗi (steps to reproduce)'], 200, 'TÁI HIỆN THỦ THUẬN'],
-  ['暫定対応', 'ざんていたいおう', ['xử lý tạm thời (workaround / temporary fix)'], 200, 'TẠM ĐỊNH ĐỐI ỨNG'],
-  ['恒久対応', 'こうきゅうたいおう', ['xử lý triệt để / lâu dài (permanent fix)'], 200, 'HẰNG CỬU ĐỐI ỨNG'],
-  ['指摘事項', 'してきじこう', ['điểm được chỉ ra cần sửa khi review (review comment / finding)'], 200, 'CHỈ TRÍCH SỰ HẠNG'],
-  ['納期', 'のうき', ['thời hạn bàn giao (delivery deadline)'], 200, 'NẠP KỲ'],
-  ['見積もり', 'みつもり', ['ước lượng công sức / báo giá (estimation)'], 200, 'KIẾN TÍCH']
+  ['仕様', 'しよう', ['đặc tả kỹ thuật (specification); quy cách'], 220, 'SĨ DẠNG', 'IT'],
+  ['仕様書', 'しようしょ', ['tài liệu đặc tả (specification document)'], 220, 'SĨ DẠNG THƯ', 'IT'],
+  ['要件定義', 'ようけんていぎ', ['định nghĩa yêu cầu (requirement definition)'], 220, 'YẾU KIỆN ĐỊNH NGHĨA', 'IT'],
+  ['基本設計', 'きほんせっけい', ['thiết kế cơ bản (basic design)'], 220, 'CƠ BẢN THIẾT KẾ', 'IT'],
+  ['詳細設計', 'しょうさいせっけい', ['thiết kế chi tiết (detailed design)'], 220, 'TƯỜNG TẾ THIẾT KẾ', 'IT'],
+  ['実装', 'じっそう', ['triển khai code; cài đặt (implementation)'], 220, 'THỰC TRANG', 'IT'],
+  ['単体テスト', 'たんたいてすと', ['kiểm thử đơn vị (unit test)'], 220, 'ĐƠN THỂ', 'IT'],
+  ['結合テスト', 'けつごうてすと', ['kiểm thử tích hợp (integration test)'], 220, 'KẾT HỢP', 'IT'],
+  ['不具合', 'ふぐあい', ['lỗi phần mềm; trục trặc (bug / defect)'], 220, 'BẤT CỤ HỢP', 'IT'],
+  ['改修', 'かいしゅう', ['chỉnh sửa, nâng cấp phần mềm (modification / fix)'], 220, 'CẢI TU', 'IT'],
+  ['修正', 'しゅうせい', ['sửa lỗi, hiệu chỉnh (fix / correction)'], 220, 'TU CHÍNH', 'IT'],
+  ['認証', 'にんしょう', ['xác thực danh tính (authentication)'], 220, 'NHẬN CHỨNG', 'IT'],
+  ['認証情報', 'にんしょうじょうほう', ['thông tin xác thực (credentials)'], 230, 'NHẬN CHỨNG TÌNH BÁO', 'IT'],
+  ['認可', 'にんか', ['phân quyền truy cập (authorization)'], 220, 'NHẬN KHẢ', 'IT'],
+  ['権限', 'けんげん', ['quyền hạn (permission / privilege)'], 220, 'QUYỀN HẠN', 'IT'],
+  ['環境変数', 'かんきょうへんすう', ['biến môi trường (environment variable)'], 220, 'HOÀN CẢNH BIẾN SỐ', 'IT'],
+  ['本番環境', 'ほんばんかんきょう', ['môi trường thật (production environment)'], 220, 'BẢN PHIÊN HOÀN CẢNH', 'IT'],
+  ['検証環境', 'けんしょうかんきょう', ['môi trường kiểm thử (staging / verification env)'], 220, 'KIỂM CHỨNG HOÀN CẢNH', 'IT'],
+  ['開発環境', 'かいはつかんきょう', ['môi trường phát triển (development environment)'], 220, 'KHAI PHÁT HOÀN CẢNH', 'IT'],
+  ['引数', 'ひきすう', ['tham số truyền vào hàm (argument / parameter)'], 220, 'DẪN SỐ', 'IT'],
+  ['戻り値', 'もどりち', ['giá trị trả về của hàm (return value)'], 220, 'LỆ TRỊ', 'IT'],
+  ['返り値', 'かえりち', ['giá trị trả về (return value)'], 220, 'PHẢN TRỊ', 'IT'],
+  ['例外', 'れいがい', ['ngoại lệ (exception)'], 220, 'LỆ NGOẠI', 'IT'],
+  ['初期化', 'しょきか', ['khởi tạo (initialization)'], 220, 'SƠ KỲ HÓA', 'IT'],
+  ['非同期', 'ひどうき', ['bất đồng bộ (asynchronous)'], 220, 'PHI ĐỒNG KỲ', 'IT'],
+  ['同期処理', 'どうきしょり', ['xử lý đồng bộ (synchronous processing)'], 220, 'ĐỒNG KỲ XỬ LÝ', 'IT'],
+  ['排他制御', 'はいたせいぎょ', ['kiểm soát loại trừ tương hỗ / khóa đồng thời (mutex / concurrency lock)'], 220, 'BÀI THA CHẾ NGỰ', 'IT'],
+  ['冪等性', 'べきとうせい', ['tính lũy đẳng (idempotency)'], 220, 'MỊCH ĐẲNG TÍNH', 'IT'],
+  ['閾値', 'しきいち', ['ngưỡng giới hạn (threshold)'], 220, 'NGƯỠNG TRỊ', 'IT'],
+  ['再現手順', 'さいげんてじゅん', ['các bước tái hiện lỗi (steps to reproduce)'], 220, 'TÁI HIỆN THỦ THUẬN', 'IT'],
+  ['暫定対応', 'ざんていたいおう', ['xử lý tạm thời (workaround / temporary fix)'], 220, 'TẠM ĐỊNH ĐỐI ỨNG', 'IT'],
+  ['恒久対応', 'こうきゅうたいおう', ['xử lý triệt để / lâu dài (permanent fix)'], 220, 'HẰNG CỬU ĐỐI ỨNG', 'IT'],
+  ['指摘事項', 'してきじこう', ['điểm được chỉ ra cần sửa khi review (review comment / finding)'], 220, 'CHỈ TRÍCH SỰ HẠNG', 'IT'],
+  ['納期', 'のうき', ['thời hạn bàn giao (delivery deadline)'], 220, 'NẠP KỲ', 'IT'],
+  ['見積もり', 'みつもり', ['ước lượng công sức / báo giá (estimation)'], 220, 'KIẾN TÍCH', 'IT']
 ];
+
+const IGNORED_TAGS = new Set(['rt', 'rp']);
+const IGNORED_DATA = new Set([
+  'attribution',
+  'extra-info',
+  'xref',
+  'forms',
+  'example-sentence',
+  'info-glossary'
+]);
+const BLOCK_TAGS = new Set(['div', 'p', 'li', 'ul', 'ol', 'tr', 'table', 'section']);
+
+function renderNode(node) {
+  if (node === null || node === undefined) return '';
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(renderNode).join('');
+  if (typeof node === 'object') {
+    const tag = typeof node.tag === 'string' ? node.tag.toLowerCase() : '';
+    if (IGNORED_TAGS.has(tag)) return '';
+    const dataContent = node.data && typeof node.data === 'object' ? node.data.content : '';
+    if (dataContent && IGNORED_DATA.has(dataContent)) return '';
+    if (tag === 'br') return '\n';
+    const inner = renderNode(node.content);
+    if (!inner) return '';
+    if (dataContent === 'part-of-speech-info') return `(${inner.trim()}) `;
+    if (tag === 'li') return `• ${inner.trim()}\n`;
+    if (BLOCK_TAGS.has(tag)) return `${inner.trim()}\n`;
+    return inner;
+  }
+  return '';
+}
+
+function extractGloss(item) {
+  if (typeof item === 'string') return item.trim();
+  if (!item || typeof item !== 'object') return '';
+  if (item.type === 'image') return '';
+  if (item.type === 'text' && typeof item.text === 'string') return item.text.trim();
+  if (item.type === 'structured-content') return renderNode(item.content).trim();
+  if ('content' in item) return renderNode(item.content).trim();
+  return '';
+}
+
+async function extractYomitanZipTerms(zipPath, dictLabel, baseScore, maxGlossesPerEntry = 4) {
+  console.log(`[parse] Loading ${zipPath} (${dictLabel})...`);
+  const zip = await JSZip.loadAsync(fs.readFileSync(zipPath));
+  const bankNames = Object.keys(zip.files)
+    .filter((n) => /^term_bank_\d+\.json$/.test(path.basename(n)))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+  const out = [];
+  for (const bankName of bankNames) {
+    const rows = JSON.parse(await zip.files[bankName].async('string'));
+    for (const row of rows) {
+      if (!Array.isArray(row) || row.length < 6) continue;
+      const expression = String(row[0] ?? '').trim();
+      const reading = String(row[1] ?? '').trim() || expression;
+      if (!expression) continue;
+
+      const rawGlosses = Array.isArray(row[5]) ? row[5] : [row[5]];
+      const blocks = rawGlosses.map(extractGloss).filter(Boolean);
+      if (blocks.length === 0) continue;
+
+      let hanViet = '';
+      const glosses = [];
+      for (const block of blocks) {
+        const lines = block
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter(Boolean);
+        if (lines.length === 0) continue;
+
+        let start = 0;
+        const first = lines[0];
+        if (
+          !hanViet &&
+          lines.length >= 2 &&
+          first.length <= 45 &&
+          first === first.toUpperCase() &&
+          /^[\p{Script=Latin}\s,;/·-]+$/u.test(first) &&
+          /\p{L}/u.test(first)
+        ) {
+          hanViet = first;
+          start = 1;
+        }
+
+        if (start > 0) {
+          for (let i = start; i < lines.length; i++) {
+            const g = lines[i].replace(/^\d+\.\s*/, '').trim();
+            if (g) glosses.push(g);
+            if (glosses.length >= maxGlossesPerEntry) break;
+          }
+        } else {
+          // Group structured sense bullets cleanly
+          const senseLines = lines
+            .join('\n')
+            .replace(/\(\s*([^)]+)\s*\)\s*\n•\s*/g, '($1) ')
+            .split('\n')
+            .map((s) => s.replace(/^•\s*/, '').trim())
+            .filter(Boolean);
+          for (const sl of senseLines) {
+            // Skip standalone redundant pos tag if no gloss followed
+            if (/^\([^)]+\)$/.test(sl)) continue;
+            glosses.push(sl);
+            if (glosses.length >= maxGlossesPerEntry) break;
+          }
+        }
+        if (glosses.length >= maxGlossesPerEntry) break;
+      }
+
+      if (glosses.length > 0) {
+        out.push([expression, reading, glosses, baseScore, hanViet || undefined, dictLabel]);
+      }
+    }
+  }
+  console.log(`[ok] Extracted ${out.length} entries from ${dictLabel}`);
+  return out;
+}
 
 async function downloadIfMissing(url, destPath) {
   if (fs.existsSync(destPath) && fs.statSync(destPath).size > 1000) {
-    console.log(`[skip] Already downloaded: ${path.basename(destPath)}`);
     return;
   }
   console.log(`[download] Fetching ${url} ...`);
   const res = await fetch(url, { redirect: 'follow' });
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status} downloading ${url}`);
-  }
-  const buf = Buffer.from(await res.arrayBuffer());
-  fs.writeFileSync(destPath, buf);
-  console.log(`[ok] Saved ${path.basename(destPath)} (${(buf.length / 1048576).toFixed(2)} MB)`);
-}
-
-function parseStarDict(idxBuf, dictBuf) {
-  const entries = [];
-  let pos = 0;
-
-  while (pos < idxBuf.length) {
-    // Null-terminated UTF-8 word
-    let zeroIdx = pos;
-    while (zeroIdx < idxBuf.length && idxBuf[zeroIdx] !== 0) {
-      zeroIdx++;
-    }
-    if (zeroIdx + 9 > idxBuf.length) break;
-
-    const headword = idxBuf.subarray(pos, zeroIdx).toString('utf8').trim();
-    const offset = idxBuf.readUInt32BE(zeroIdx + 1);
-    const size = idxBuf.readUInt32BE(zeroIdx + 5);
-    pos = zeroIdx + 9;
-
-    if (!headword || offset + size > dictBuf.length) continue;
-
-    const rawDef = dictBuf.subarray(offset, offset + size).toString('utf8');
-    const lines = rawDef
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter(Boolean);
-
-    let reading = '';
-    const glosses = [];
-
-    for (const line of lines) {
-      // @headword [reading] or @headword 【reading】
-      if (line.startsWith('@')) {
-        const rdMatch = line.match(/[【\[{]([^】\]}]+)[】\]}]/);
-        if (rdMatch && !reading) {
-          reading = rdMatch[1].trim();
-        }
-        continue;
-      }
-      // OVDP star_nhatviet stores kana reading on its own line as "{にんしょう}"
-      const pureBraceReading = line.match(/^[-*\s]*\{([\u3040-\u30FFー・\s,、]+)\}\s*$/);
-      if (pureBraceReading) {
-        if (!reading) {
-          reading = pureBraceReading[1].split(/[,、]/)[0].trim();
-        }
-        continue;
-      }
-      if (line.startsWith('*')) {
-        const posLabel = line.replace(/^\*+\s*/, '').trim();
-        if (posLabel) {
-          glosses.push(`(${posLabel})`);
-        }
-        continue;
-      }
-      if (line.startsWith('-')) {
-        const g = line
-          .replace(/^-+\s*/, '')
-          .replace(/^\{([^}]+)\}\s*,\s*/, '[$1] ')
-          .trim();
-        if (g) glosses.push(g);
-        continue;
-      }
-      if (line.startsWith('=')) {
-        // Keep max 1 short example to keep bundle compact & hover readable
-        if (glosses.length < 4) {
-          const ex = line.replace(/^=+\s*/, '').replace(/\+/g, '→ ').trim();
-          if (ex && ex.length <= 80) {
-            glosses.push(`VD: ${ex}`);
-          }
-        }
-        continue;
-      }
-      if (glosses.length < 5) {
-        const cleanedLine = line.replace(/^\{([^}]+)\}\s*,\s*/, '[$1] ').trim();
-        if (cleanedLine) glosses.push(cleanedLine);
-      }
-    }
-
-    if (glosses.length > 0) {
-      // Compact multiple short lines into max 5 crisp gloss strings
-      const merged = [];
-      let pendingPos = '';
-      for (const g of glosses) {
-        if (g.startsWith('(') && g.endsWith(')') && g.length < 35) {
-          pendingPos = g;
-        } else if (pendingPos) {
-          merged.push(`${pendingPos} ${g}`);
-          pendingPos = '';
-        } else {
-          merged.push(g);
-        }
-        if (merged.length >= 5) break;
-      }
-      if (merged.length > 0) {
-        entries.push([headword, reading || headword, merged, 50]);
-      }
-    }
-  }
-
-  return entries;
+  if (!res.ok) throw new Error(`HTTP ${res.status} downloading ${url}`);
+  fs.writeFileSync(destPath, Buffer.from(await res.arrayBuffer()));
 }
 
 const kanjidicZipPath = path.join(DATA_DIR, 'KANJIDIC_vietnamese.zip');
-const idxPath = path.join(TMP_DIR, 'star_nhatviet.idx');
-const dictPath = path.join(TMP_DIR, 'star_nhatviet.dict');
+await downloadIfMissing(KANJIDIC_VN_URL, kanjidicZipPath);
 
-await Promise.all([
-  downloadIfMissing(KANJIDIC_VN_URL, kanjidicZipPath),
-  downloadIfMissing(STARDICT_IDX_URL, idxPath),
-  downloadIfMissing(STARDICT_DICT_URL, dictPath)
-]);
+const maziiZipPath = path.resolve('mazii_yomitan.zip');
+const jitendexZipPath = path.resolve('jitendex-yomitan.zip');
 
-console.log('[parse] Parsing StarDict OVDP Japanese-Vietnamese dictionary...');
-const idxBuf = fs.readFileSync(idxPath);
-const dictBuf = fs.readFileSync(dictPath);
-const ovdpTerms = parseStarDict(idxBuf, dictBuf);
-console.log(`[parse] Extracted ${ovdpTerms.length} Japanese-Vietnamese term entries!`);
+const allTerms = [...CURATED_IT_TERMS];
+
+if (fs.existsSync(maziiZipPath)) {
+  const maziiTerms = await extractYomitanZipTerms(maziiZipPath, 'Mazii', 140, 4);
+  for (const item of maziiTerms) allTerms.push(item);
+}
+
+if (fs.existsSync(jitendexZipPath)) {
+  const jitendexTerms = await extractYomitanZipTerms(jitendexZipPath, 'Jitendex', 60, 3);
+  for (const item of jitendexTerms) allTerms.push(item);
+}
 
 const bundle = {
-  title: 'Từ điển Nhật - Việt (OVDP & IT Glossary)',
-  terms: [...CURATED_IT_TERMS, ...ovdpTerms]
+  title: 'Mazii (Nhật-Việt) & Jitendex Yomitan',
+  terms: allTerms
 };
 
 const outGzPath = path.join(DATA_DIR, 'javi-dict.json.gz');

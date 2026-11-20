@@ -30,7 +30,8 @@ export function formatYomitanHoverMarkdown(input: HoverRenderInput): string {
       const readingBadge =
         m.reading && m.reading !== m.expression ? ` 【${m.reading}】` : '';
       const hvBadge = m.hanViet ? ` · \`[${m.hanViet}]\`` : '';
-      let header = `### **${m.expression}**${readingBadge}${hvBadge}`;
+      const dictBadge = m.dictionary ? ` *(${escapeMarkdownInline(m.dictionary)})*` : '';
+      let header = `### **${m.expression}**${readingBadge}${hvBadge}${dictBadge}`;
 
       if (m.deinflectReasons.length > 0 || m.matchedSurface !== m.expression) {
         const reasonStr =

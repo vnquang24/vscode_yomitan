@@ -1,7 +1,7 @@
 # Yomi Ja-Vi — Từ điển Hover Yomitan & Small Local LLM (Nhật – Việt)
 
 Extension VS Code giúp đọc code, comment và tài liệu dự án tiếng Nhật **an toàn bảo mật 100% (NDA / Offline)**:
-- **Di chuột tra từ kiểu Yomitan (< 5ms):** Hiện từ gốc, cách đọc **Kana (Hiragana)**, **Âm Hán-Việt**, khử chia động từ/tính từ (`実装されていません` → `実装`), nghĩa tiếng Việt (tích hợp sẵn **172.000+ mục từ Nhật–Việt** + **KanjiDictVN**), không chèn chữ làm rối trình soạn thảo.
+- **Di chuột tra từ kiểu Yomitan (< 15ms):** Hiện từ gốc, cách đọc **Kana (Hiragana)**, **Âm Hán-Việt**, khử chia động từ/tính từ (`実装されていません` → `実装`), nghĩa tiếng Việt & tiếng Anh chuyên sâu — đã tích hợp sẵn **703.400+ mục từ** gồm **Mazii Nhật–Việt (~266.800 mục)** + **Jitendex (~436.500 mục)** + **KanjiDictVN (Hán-Việt)** + **Thuật ngữ IT**, hoàn toàn không chèn chữ làm rối trình soạn thảo.
 - **Hỗ trợ chuẩn Yomitan `.zip`:** Có thể import bất kỳ bộ từ điển `.zip` Yomitan v3 nào qua lệnh `Yomi Ja-Vi: Import từ điển Yomitan (.zip)`.
 - **Dịch câu bằng Small Local LLM (100% Localhost):**
   - Tối ưu riêng cho máy **Intel Core Ultra 7 / 16GB RAM**: mặc định khuyên dùng **`Qwen2.5-3B-Instruct (Q4_K_M ~1.98 GB)`** hoặc bản siêu nhẹ **`Qwen3-1.7B (Q4_K_M ~1.11 GB)`**.

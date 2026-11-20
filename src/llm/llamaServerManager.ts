@@ -8,6 +8,21 @@ import {
   downloadFileWithProgress,
   resolveLatestLlamaCppAsset
 } from './modelCatalog.js';
+import { SecurityViolationError } from './securityGuard.js';
+
+export function resolveSafeExtractPath(rootDir: string, relativeEntryPath: string): string {
+  const resolvedRoot = path.resolve(rootDir);
+  const resolvedTarget = path.resolve(resolvedRoot, relativeEntryPath);
+  if (
+    resolvedTarget !== resolvedRoot &&
+    !resolvedTarget.startsWith(resolvedRoot + path.sep)
+  ) {
+    throw new SecurityViolationError(
+      `Chặn giải nén đường dẫn không an toàn (Zip Slip): "${relativeEntryPath}"`
+    );
+  }
+  return resolvedTarget;
+}
 
 const execFileAsync = promisify(execFile);
 
@@ -70,7 +85,7 @@ export class LlamaServerManager {
     } else if (asset.assetName.endsWith('.zip')) {
       const zip = await JSZip.loadAsync(fs.readFileSync(archivePath));
       for (const [relPath, entry] of Object.entries(zip.files)) {
-        const outPath = path.join(binRoot, relPath);
+        const outPath = resolveSafeExtractPath(binRoot, relPath);
         if (entry.dir) {
           fs.mkdirSync(outPath, { recursive: true });
         } else {

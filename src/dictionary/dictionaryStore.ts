@@ -13,8 +13,8 @@ const gunzipAsync = promisify(zlib.gunzip);
 
 export interface CompactDictionaryBundle {
   title: string;
-  /** Compact tuples: [expression, reading, glosses[], score?, hanViet?] */
-  terms: Array<[string, string, string[], number?, string?]>;
+  /** Compact tuples: [expression, reading, glosses[], score?, hanViet?, dictLabel?] */
+  terms: Array<[string, string, string[], number?, string?, string?]>;
   kanji?: Array<[string, string, string, string, string[]]>;
 }
 
@@ -113,7 +113,7 @@ export class DictionaryStore {
       }
     }
 
-    for (const [expression, reading, glosses, score, hanViet] of bundle.terms) {
+    for (const [expression, reading, glosses, score, hanViet, dictLabel] of bundle.terms) {
       this.addTerm({
         expression,
         reading: reading || expression,
@@ -122,7 +122,7 @@ export class DictionaryStore {
         score: score ?? 50,
         glosses,
         hanViet,
-        dictionary: bundle.title
+        dictionary: dictLabel || bundle.title
       });
     }
 

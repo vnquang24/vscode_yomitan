@@ -30,6 +30,14 @@ export interface ParsedYomitanDictionary {
 
 const BLOCK_TAGS = new Set(['div', 'p', 'li', 'ul', 'ol', 'tr', 'table', 'section', 'details']);
 const IGNORED_TAGS = new Set(['rt', 'rp']);
+const IGNORED_DATA_CONTENT = new Set([
+  'attribution',
+  'extra-info',
+  'xref',
+  'forms',
+  'example-sentence',
+  'info-glossary'
+]);
 
 export function extractGlossaryText(item: unknown): string {
   if (typeof item === 'string') {
@@ -71,11 +79,23 @@ function renderStructuredNode(node: unknown): string {
     if (IGNORED_TAGS.has(tag)) {
       return '';
     }
+    const dataObj =
+      el.data && typeof el.data === 'object'
+        ? (el.data as Record<string, unknown>)
+        : undefined;
+    const dataContent =
+      typeof dataObj?.content === 'string' ? dataObj.content : '';
+    if (dataContent && IGNORED_DATA_CONTENT.has(dataContent)) {
+      return '';
+    }
     if (tag === 'br') {
       return '\n';
     }
     const inner = renderStructuredNode(el.content);
     if (!inner) return '';
+    if (dataContent === 'part-of-speech-info') {
+      return `(${inner.trim()}) `;
+    }
     if (tag === 'li') {
       return `• ${inner.trim()}\n`;
     }
@@ -208,9 +228,50 @@ export async function parseYomitanZip(
         const rules = String(row[3] ?? '').trim();
         const score = typeof row[4] === 'number' ? row[4] : 0;
         const rawGlosses = Array.isArray(row[5]) ? row[5] : [row[5]];
-        const glosses = rawGlosses
+        const extractedStrings = rawGlosses
           .map((g) => extractGlossaryText(g))
           .filter((g) => g.length > 0);
+
+        let termHanViet: string | undefined;
+        const glosses: string[] = [];
+
+        for (const textBlock of extractedStrings) {
+          const lines = textBlock
+            .split(/\r?\n/)
+            .map((l) => l.trim())
+            .filter(Boolean);
+          if (lines.length === 0) continue;
+
+          let startIdx = 0;
+          const first = lines[0];
+          // Detect Mazii leading ALL-CAPS Hán-Việt line (e.g. "PHỐI ĐIỆN SỞ")
+          if (
+            !termHanViet &&
+            lines.length >= 2 &&
+            first.length <= 45 &&
+            first === first.toUpperCase() &&
+            /^[\p{Script=Latin}\s,;/·-]+$/u.test(first) &&
+            /\p{L}/u.test(first)
+          ) {
+            termHanViet = first;
+            startIdx = 1;
+          }
+
+          if (startIdx > 0) {
+            for (let i = startIdx; i < lines.length; i++) {
+              const stripped = lines[i].replace(/^\d+\.\s*/, '').trim();
+              if (stripped) glosses.push(stripped);
+            }
+          } else {
+            // Merge (pos) line with following bullet if structured-content emitted "(noun)\n• blackout"
+            const compact = lines
+              .join(' ')
+              .replace(/\(\s*([^)]+)\s*\)\s*•\s*/g, '($1) ')
+              .replace(/^•\s*/, '')
+              .trim();
+            if (compact) glosses.push(compact);
+          }
+        }
 
         if (expression && glosses.length > 0) {
           terms.push({
@@ -220,6 +281,7 @@ export async function parseYomitanZip(
             rules,
             score,
             glosses,
+            hanViet: termHanViet,
             dictionary: title
           });
         }

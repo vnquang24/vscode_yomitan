@@ -139,4 +139,84 @@ describe('parseYomitanZip & DictionaryStore', () => {
     expect(kList[2].hanViet).toBe('Á, ÁCH, NHA');
     expect(store.computeCompoundHanViet('亜働')).toBe('Á ĐỘNG');
   });
+
+  it('parses real Mazii Yomitan format (extracting leading Hán-Việt line and splitting numbered Vietnamese glosses) and Jitendex structured-content (filtering attribution/xref noise)', async () => {
+    const zip = new JSZip();
+    zip.file('index.json', JSON.stringify({ title: 'Mazii & Jitendex Test', format: 3 }));
+    zip.file(
+      'term_bank_1.json',
+      JSON.stringify([
+        [
+          '配電所',
+          'はいでんしょ',
+          'n',
+          '',
+          10,
+          ['PHỐI ĐIỆN SỞ\n1. trạm phân phối điện.\n2. trạm biến áp phụ.\n'],
+          1,
+          ''
+        ],
+        [
+          'ブラックアウト',
+          'ブラックアウト',
+          '',
+          '',
+          5,
+          [
+            {
+              type: 'structured-content',
+              content: [
+                {
+                  tag: 'div',
+                  data: { content: 'sense-group' },
+                  content: [
+                    {
+                      tag: 'span',
+                      data: { content: 'part-of-speech-info' },
+                      content: 'noun'
+                    },
+                    {
+                      tag: 'div',
+                      data: { content: 'sense' },
+                      content: [
+                        {
+                          tag: 'ul',
+                          data: { content: 'glossary' },
+                          content: { tag: 'li', content: 'blackout; power outage' }
+                        },
+                        {
+                          tag: 'div',
+                          data: { content: 'extra-info' },
+                          content: 'See also 停電'
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  tag: 'div',
+                  data: { content: 'attribution' },
+                  content: 'JMdict'
+                }
+              ]
+            }
+          ],
+          2,
+          ''
+        ]
+      ])
+    );
+
+    const parsed = await parseYomitanZip(await zip.generateAsync({ type: 'nodebuffer' }));
+    const maziiTerm = parsed.terms.find((t) => t.expression === '配電所')!;
+    expect(maziiTerm.hanViet).toBe('PHỐI ĐIỆN SỞ');
+    expect(maziiTerm.glosses).toEqual(['trạm phân phối điện.', 'trạm biến áp phụ.']);
+
+    const jitendexTerm = parsed.terms.find((t) => t.expression === 'ブラックアウト')!;
+    const joined = jitendexTerm.glosses.join(' ');
+    expect(joined).toContain('(noun)');
+    expect(joined).toContain('blackout; power outage');
+    expect(joined).not.toContain('JMdict');
+    expect(joined).not.toContain('See also 停電');
+  });
 });

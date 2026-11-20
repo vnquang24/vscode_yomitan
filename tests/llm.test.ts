@@ -4,6 +4,7 @@ import { assertLocalhostUrl, SecurityViolationError } from '../src/llm/securityG
 import { TranslationCache } from '../src/llm/translationCache.js';
 import { buildTranslationMessages, cleanModelOutput } from '../src/llm/promptBuilder.js';
 import { LlmTranslator } from '../src/llm/llmTranslator.js';
+import { resolveSafeExtractPath } from '../src/llm/llamaServerManager.js';
 
 describe('securityGuard (NDA 100% localhost enforcement)', () => {
   it('allows loopback addresses (127.0.0.1, localhost, [::1])', () => {
@@ -21,6 +22,15 @@ describe('securityGuard (NDA 100% localhost enforcement)', () => {
     );
     expect(() => assertLocalhostUrl('http://192.168.1.20:11434')).toThrow(
       SecurityViolationError
+    );
+  });
+
+  it('prevents Zip Slip path traversal when extracting archive entries', () => {
+    expect(() => resolveSafeExtractPath('/tmp/llama-bin', '../../etc/cron.d/pwn')).toThrow(
+      SecurityViolationError
+    );
+    expect(resolveSafeExtractPath('/tmp/llama-bin', 'build/bin/llama-server')).toBe(
+      '/tmp/llama-bin/build/bin/llama-server'
     );
   });
 });
