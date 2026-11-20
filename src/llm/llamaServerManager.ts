@@ -27,6 +27,68 @@ export function resolveSafeExtractPath(rootDir: string, relativeEntryPath: strin
   return resolvedTarget;
 }
 
+export function needsLinuxLibgomp(lddOutput: string): boolean {
+  return /libgomp\.so\.1\s*=>\s*not found/.test(lddOutput);
+}
+
+async function ensureLinuxRuntimeLibs(
+  binPath: string,
+  onProgress?: (msg: string) => void
+): Promise<void> {
+  if (process.platform !== 'linux') return;
+  const binDir = path.dirname(binPath);
+  const localLibgomp = path.join(binDir, 'libgomp.so.1');
+  if (fs.existsSync(localLibgomp)) return;
+
+  let missing = false;
+  try {
+    const { stdout } = await execFileAsync('ldd', [binPath], {
+      env: {
+        ...process.env,
+        LD_LIBRARY_PATH: `${binDir}:${process.env.LD_LIBRARY_PATH ?? ''}`
+      }
+    });
+    missing = needsLinuxLibgomp(stdout);
+  } catch {
+    return;
+  }
+
+  if (!missing) return;
+
+  onProgress?.('Đang tải thư viện OpenMP (libgomp.so.1) cho Ubuntu/Debian...');
+  const tmpDir = path.join(binDir, '.tmp-libgomp');
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+  fs.mkdirSync(tmpDir, { recursive: true });
+
+  try {
+    await execFileAsync('apt-get', ['download', 'libgomp1'], { cwd: tmpDir });
+    const debFile = fs.readdirSync(tmpDir).find((f) => f.startsWith('libgomp1') && f.endsWith('.deb'));
+    if (!debFile) {
+      throw new Error('Không tìm thấy gói libgomp1.deb');
+    }
+    const extractDir = path.join(tmpDir, 'extracted');
+    fs.mkdirSync(extractDir, { recursive: true });
+    await execFileAsync('dpkg-deb', ['-x', path.join(tmpDir, debFile), extractDir]);
+
+    const realSo = findFileRecursive(extractDir, 'libgomp.so.1.0.0');
+    if (!realSo) {
+      throw new Error('Không tìm thấy libgomp.so.1.0.0 bên trong gói deb');
+    }
+    const destReal = path.join(binDir, 'libgomp.so.1.0.0');
+    fs.copyFileSync(realSo, destReal);
+    fs.chmodSync(destReal, 0o755);
+    if (!fs.existsSync(localLibgomp)) {
+      fs.symlinkSync('libgomp.so.1.0.0', localLibgomp);
+    }
+  } catch {
+    throw new Error(
+      'Máy Linux/WSL của bạn đang thiếu thư viện OpenMP (libgomp.so.1). Vui lòng chạy "sudo apt-get update && sudo apt-get install -y libgomp1" rồi thử lại.'
+    );
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
 export type LlamaServerState = 'stopped' | 'starting' | 'ready';
 
 export interface LlamaServerOptions {
@@ -132,6 +194,7 @@ export class LlamaServerManager {
         if (process.platform !== 'win32') {
           fs.chmodSync(found, 0o755);
         }
+        await ensureLinuxRuntimeLibs(found, (msg) => onProgress?.(msg));
         return found;
       } finally {
         this.installingPromise = null;
@@ -172,6 +235,10 @@ export class LlamaServerManager {
             'Chưa cài đặt engine llama-server. Hãy chạy lệnh "Yomi Ja-Vi: Tải Small LLM Offline" để tự động cài đặt.'
           );
         }
+
+        await ensureLinuxRuntimeLibs(binPath, (msg) =>
+          this.setState('starting', opts.onStateChange, msg)
+        );
 
         const freePort = await getEphemeralLoopbackPort();
         if (this.stopGeneration !== launchGen) {

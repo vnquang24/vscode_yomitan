@@ -264,14 +264,13 @@ export class YomiJaviSidebarProvider implements vscode.WebviewViewProvider {
 </head>
 <body>
   <div class="badge-security">
-    <span>🔒 100% Localhost</span>
     <span id="llmStatus">Idle (0 MB)</span>
   </div>
 
   <textarea id="jaInput" placeholder="Nhập hoặc bôi đen câu tiếng Nhật rồi bấm Ctrl+Shift+Y..."></textarea>
   <div class="btn-row">
-    <button id="btnTranslate">🤖 Dịch Nhật → Việt (LLM)</button>
-    <button id="btnLookup" class="secondary">📖 Tách từ Yomitan</button>
+    <button id="btnTranslate">Dịch Nhật → Việt (LLM)</button>
+    <button id="btnLookup" class="secondary">Tách từ Yomitan</button>
   </div>
 
   <div id="kanaCard" class="card" style="display:none;">

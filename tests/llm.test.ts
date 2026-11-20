@@ -4,7 +4,10 @@ import { assertLocalhostUrl, SecurityViolationError } from '../src/llm/securityG
 import { TranslationCache } from '../src/llm/translationCache.js';
 import { buildTranslationMessages, cleanModelOutput } from '../src/llm/promptBuilder.js';
 import { LlmTranslator } from '../src/llm/llmTranslator.js';
-import { resolveSafeExtractPath } from '../src/llm/llamaServerManager.js';
+import {
+  resolveSafeExtractPath,
+  needsLinuxLibgomp
+} from '../src/llm/llamaServerManager.js';
 
 describe('securityGuard (NDA 100% localhost enforcement)', () => {
   it('allows loopback addresses (127.0.0.1, localhost, [::1])', () => {
@@ -41,6 +44,13 @@ describe('securityGuard (NDA 100% localhost enforcement)', () => {
     expect(() => assertLocalhostUrl('http://user:secret@127.0.0.1:11434')).toThrow(
       SecurityViolationError
     );
+  });
+
+  it('detects missing libgomp.so.1 in Linux ldd output', () => {
+    const missingLdd = '\tlibstdc++.so.6 => /usr/lib/libstdc++.so.6\n\tlibgomp.so.1 => not found\n';
+    const okLdd = '\tlibgomp.so.1 => /usr/lib/x86_64-linux-gnu/libgomp.so.1 (0x00007f)\n';
+    expect(needsLinuxLibgomp(missingLdd)).toBe(true);
+    expect(needsLinuxLibgomp(okLdd)).toBe(false);
   });
 });
 
