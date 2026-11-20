@@ -1,0 +1,186 @@
+{
+  "name": "yomi-javi",
+  "displayName": "Yomi Ja-Vi (Yomitan & Local AI Nhật - Việt)",
+  "description": "Tra từ điển Nhật-Việt, Kana & Hán-Việt kiểu Yomitan khi di chuột + Dịch câu bằng Small Local LLM bảo mật 100% offline.",
+  "version": "0.1.0",
+  "publisher": "local-dev",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other",
+    "Education",
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "yomi-javi-sidebar",
+          "title": "Yomi Ja-Vi",
+          "icon": "$(book)"
+        }
+      ]
+    },
+    "views": {
+      "yomi-javi-sidebar": [
+        {
+          "type": "webview",
+          "id": "yomiJavi.lookupView",
+          "name": "Tra từ & Dịch Offline (Nhật - Việt)"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "yomiJavi.translateText",
+        "title": "Yomi Ja-Vi: Dịch câu sang tiếng Việt (Local LLM)"
+      },
+      {
+        "command": "yomiJavi.translateSelection",
+        "title": "Yomi Ja-Vi: Dịch vùng bôi đen sang tiếng Việt (Local LLM)"
+      },
+      {
+        "command": "yomiJavi.openLookupPanel",
+        "title": "Yomi Ja-Vi: Mở bảng tra từ Yomitan & AI"
+      },
+      {
+        "command": "yomiJavi.importYomitanZip",
+        "title": "Yomi Ja-Vi: Import từ điển Yomitan (.zip)"
+      },
+      {
+        "command": "yomiJavi.downloadModel",
+        "title": "Yomi Ja-Vi: Tải Small LLM Offline (Qwen2.5-3B / Qwen3-1.7B)"
+      },
+      {
+        "command": "yomiJavi.selectLocalGguf",
+        "title": "Yomi Ja-Vi: Chọn file model .gguf có sẵn trên máy"
+      },
+      {
+        "command": "yomiJavi.stopLlmServer",
+        "title": "Yomi Ja-Vi: Giải phóng RAM Model LLM ngay lập tức"
+      },
+      {
+        "command": "yomiJavi.toggleHover",
+        "title": "Yomi Ja-Vi: Bật/Tắt tra từ khi di chuột (Hover)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "yomiJavi.translateSelection",
+        "key": "ctrl+shift+y",
+        "mac": "cmd+shift+y",
+        "when": "editorTextFocus && editorHasSelection"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "yomiJavi.translateSelection",
+          "when": "editorHasSelection",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Yomi Ja-Vi",
+      "properties": {
+        "yomiJavi.hover.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Bật hiển thị popup tra từ kiểu Yomitan khi di chuột vào chữ tiếng Nhật."
+        },
+        "yomiJavi.hover.maxEntries": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 15,
+          "description": "Số lượng mục từ tối đa hiển thị trong popup Hover."
+        },
+        "yomiJavi.llm.backend": {
+          "type": "string",
+          "enum": [
+            "managed-llama",
+            "ollama"
+          ],
+          "enumDescriptions": [
+            "Tự động chạy llama-server nội bộ với file GGUF (không cần cài phần mềm ngoài, tự giải phóng RAM khi nghỉ).",
+            "Kết nối tới Ollama chạy sẵn trên máy (http://127.0.0.1:11434)."
+          ],
+          "default": "managed-llama",
+          "description": "Cơ chế chạy Small LLM nội bộ (chỉ cho phép kết nối 127.0.0.1 để bảo mật)."
+        },
+        "yomiJavi.llm.modelPreset": {
+          "type": "string",
+          "enum": [
+            "qwen2.5-3b",
+            "qwen3-1.7b",
+            "custom-gguf"
+          ],
+          "enumDescriptions": [
+            "Qwen2.5-3B-Instruct Q4_K_M (~1.93 GB) — Khuyên dùng cho RAM 16GB, dịch Nhật-Việt và thuật ngữ IT chuẩn xác.",
+            "Qwen3-1.7B Q4_K_M (~1.1 GB) — Siêu nhẹ, phản hồi rất nhanh, tiết kiệm RAM.",
+            "Sử dụng đường dẫn file .gguf tùy chọn trong yomiJavi.llm.customGgufPath."
+          ],
+          "default": "qwen2.5-3b",
+          "description": "Model Small LLM dùng cho chế độ managed-llama."
+        },
+        "yomiJavi.llm.customGgufPath": {
+          "type": "string",
+          "default": "",
+          "description": "Đường dẫn tuyệt đối tới file .gguf trên máy (khi chọn custom-gguf)."
+        },
+        "yomiJavi.llm.ollamaEndpoint": {
+          "type": "string",
+          "default": "http://127.0.0.1:11434",
+          "description": "Địa chỉ Ollama nội bộ (bắt buộc phải là localhost / 127.0.0.1 để đảm bảo bảo mật)."
+        },
+        "yomiJavi.llm.ollamaModel": {
+          "type": "string",
+          "default": "qwen2.5:3b",
+          "description": "Tên model trong Ollama dùng để dịch Nhật - Việt."
+        },
+        "yomiJavi.llm.idleUnloadSeconds": {
+          "type": "number",
+          "default": 300,
+          "minimum": 30,
+          "description": "Tự động tắt tiến trình LLM và trả lại 100% RAM sau số giây không dịch."
+        },
+        "yomiJavi.llm.threads": {
+          "type": "number",
+          "default": 8,
+          "minimum": 1,
+          "maximum": 32,
+          "description": "Số luồng CPU cho llama-server (8 luồng giúp dịch nhanh ~0.5-1s trên Core Ultra 7 mà vẫn mát máy)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check-types": "tsc --noEmit",
+    "build:dict": "node scripts/build-dictionaries.mjs",
+    "build": "node esbuild.mjs",
+    "package": "node esbuild.mjs --production",
+    "vsix": "npx vsce package --no-dependencies -o yomi-javi-0.1.0.vsix"
+  },
+  "dependencies": {
+    "jszip": "^3.10.1",
+    "kuromoji": "^0.1.2"
+  },
+  "devDependencies": {
+    "@types/kuromoji": "^0.1.3",
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}
