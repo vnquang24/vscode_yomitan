@@ -168,7 +168,7 @@
     "build:dict": "node scripts/build-dictionaries.mjs",
     "build": "node esbuild.mjs",
     "package": "node esbuild.mjs --production",
-    "vsix": "npx vsce package --no-dependencies -o yomi-javi-0.1.0.vsix"
+    "vsix": "npx vsce package --no-dependencies --allow-missing-repository -o yomi-javi-0.1.0.vsix"
   },
   "dependencies": {
     "jszip": "^3.10.1",

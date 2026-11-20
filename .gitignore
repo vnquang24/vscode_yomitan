@@ -1,5 +1,7 @@
 node_modules/
 dist/
+data/kuromoji-dict/
 *.vsix
+*.code-profile
 .superpowers/
 tmp/

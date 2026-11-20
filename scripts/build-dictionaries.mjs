@@ -103,9 +103,17 @@ function parseStarDict(idxBuf, dictBuf) {
     for (const line of lines) {
       // @headword [reading] or @headword 【reading】
       if (line.startsWith('@')) {
-        const rdMatch = line.match(/[【\[]([^】\]]+)[】\]]/);
+        const rdMatch = line.match(/[【\[{]([^】\]}]+)[】\]}]/);
         if (rdMatch && !reading) {
           reading = rdMatch[1].trim();
+        }
+        continue;
+      }
+      // OVDP star_nhatviet stores kana reading on its own line as "{にんしょう}"
+      const pureBraceReading = line.match(/^[-*\s]*\{([\u3040-\u30FFー・\s,、]+)\}\s*$/);
+      if (pureBraceReading) {
+        if (!reading) {
+          reading = pureBraceReading[1].split(/[,、]/)[0].trim();
         }
         continue;
       }
@@ -117,7 +125,10 @@ function parseStarDict(idxBuf, dictBuf) {
         continue;
       }
       if (line.startsWith('-')) {
-        const g = line.replace(/^-+\s*/, '').trim();
+        const g = line
+          .replace(/^-+\s*/, '')
+          .replace(/^\{([^}]+)\}\s*,\s*/, '[$1] ')
+          .trim();
         if (g) glosses.push(g);
         continue;
       }
@@ -132,7 +143,8 @@ function parseStarDict(idxBuf, dictBuf) {
         continue;
       }
       if (glosses.length < 5) {
-        glosses.push(line);
+        const cleanedLine = line.replace(/^\{([^}]+)\}\s*,\s*/, '[$1] ').trim();
+        if (cleanedLine) glosses.push(cleanedLine);
       }
     }
 
